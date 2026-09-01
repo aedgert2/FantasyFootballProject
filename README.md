@@ -37,10 +37,12 @@ lift rises monotonically with more history and never degrades.
 
 | Train from | Lift on 2024 | Lift on 2025 |
 |-----------:|-------------:|-------------:|
-| 2022       | +0.060       | +0.064       |
-| 2021       | +0.069       | +0.072       |
-| 2020       | +0.068       | +0.083       |
-| **2019**   | **+0.081**   | **+0.084**   |
+| 2022       | +0.056       | +0.064       |
+| 2021       | +0.069       | +0.077       |
+| 2020       | +0.070       | +0.083       |
+| **2019**   | **+0.077**   | **+0.090**   |
+
+(Mean of 3 seeds, current feature set.)
 
 The COVID-shortened 2020 season was the obvious thing to worry about — no
 preseason, empty stadiums, home-field advantage worth roughly nothing — but
@@ -147,11 +149,31 @@ QB movement as real. It fits the feature story: snap share is the model's
 strongest signal for skill players and carries no information for quarterbacks,
 who never leave the field.
 
-One caveat on reading these numbers: rho is sensitive to how wide a group it
-spans. WR week 5 of 2025 scores about **+0.68** across all 126 receivers but
-**-0.52** over the model's own top 8, where the spread is mostly noise. The
-headline describes ordering the full position pool, not the close call you
-actually agonize over on Sunday.
+### The headline does not describe your actual decision
+
+Rho depends heavily on how wide a pool it spans, and the effect here is large
+enough to change how you should read every number above. Averaged over all 72
+groups in 2025, restricting to the top of the model's own board:
+
+| Pool | Mean rho |
+|------|----------|
+| Full position pool | **+0.577** |
+| Model's top 24 | +0.182 |
+| Model's top 12 | +0.060 |
+| Model's top 8 | +0.081 |
+| Model's top 5 | +0.101 |
+
+Sorting a full position pool that runs from zero-point WR5s to a 40-point
+ceiling is largely easy, and most of the headline rho comes from that easy part.
+Among the dozen or so players you would genuinely consider starting, the
+ordering signal is close to gone.
+
+This is not a flaw in the metric — it is the metric behaving correctly under
+range restriction — but it does mean **0.577 is not the number that describes a
+real start/sit call.** Anyone quoting the headline as "the model is right 73% of
+the time about my lineup" is overstating it. If the startable tier is the
+decision you care about, that is what should be measured and optimized;
+`LambdaRank` with a top-k objective is the natural way to attack it.
 
 ## A live feature that doesn't pay
 
