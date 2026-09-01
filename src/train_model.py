@@ -47,7 +47,7 @@ FEATURE_COLS = [
     "def_fp_allowed_roll",
     "games_played",
     "is_questionable",
-    "is_doubtful_or_out",
+    "practice_status_code",
 ]
 
 LGBM_PARAMS = dict(

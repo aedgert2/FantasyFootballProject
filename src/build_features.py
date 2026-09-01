@@ -88,6 +88,22 @@ def normalize_name(series):
     )
 
 
+def practice_severity(series):
+    """Map practice participation to an ordinal, increasing with severity.
+
+    0 is reserved for "not on the injury report at all", which ``merge_injuries``
+    fills in after the join — everything here is at least 1, because appearing
+    on the report is itself mildly informative. Blank or malformed values (the
+    source ships a few stray newlines) mean "listed, no limitation recorded",
+    which is the same severity as full participation.
+    """
+    cleaned = series.fillna("").astype(str).str.strip().str.lower()
+    code = pd.Series(1, index=series.index, dtype=int)
+    code[cleaned.str.contains("limited", na=False)] = 2
+    code[cleaned.str.contains("did not participate", na=False)] = 3
+    return code
+
+
 def normalize_team(series):
     return series.fillna("").astype(str).str.upper().replace(TEAM_FIXES)
 
@@ -230,9 +246,21 @@ def merge_snap_counts(df, snap_counts):
 
 
 def merge_injuries(df, injuries):
-    """Attach the weekly injury report status, joined on gsis_id where possible."""
+    """Attach the weekly injury report, joined on gsis_id where possible.
+
+    Both signals here are published before kickoff — practice reports land
+    Wednesday through Friday, the game designation Friday — so neither leaks.
+
+    Note the row grain: a player ruled Out never plays, so he has no
+    ``player_stats`` row and no feature row either. That makes an "is out" flag
+    structurally dead (it fired 4 times in 40,330 rows), which is why the
+    severity signal here comes from *practice participation* instead — that is
+    recorded for players who go on to play, and reaches ~17% of rows against
+    the game designation's ~4%.
+    """
     inj = injuries.copy()
     status_col = resolve(inj, "injuries", "report_status")
+    practice_col = resolve(inj, "injuries", "practice_status")
     id_col = "gsis_id" if "gsis_id" in inj.columns else None
     name_col = next(
         (c for c in ("full_name", "player_name", "player") if c in inj.columns), None
@@ -240,32 +268,34 @@ def merge_injuries(df, injuries):
 
     inj["season"] = inj["season"].astype(int)
     inj["week"] = inj["week"].astype(int)
-    inj["report_status"] = inj[status_col].fillna("").astype(str).str.title()
+    inj["report_status"] = inj[status_col].fillna("").astype(str).str.strip().str.title()
+    inj["practice_code"] = practice_severity(inj[practice_col])
+    inj["questionable"] = inj["report_status"].eq("Questionable").astype(int)
 
+    keys = ["season", "week", "player_id"] if id_col else ["season", "week", "team", "name_key"]
     if id_col:
-        keyed = inj[["season", "week", id_col, "report_status"]].rename(
-            columns={id_col: "player_id"}
-        )
-        keyed = keyed[keyed["player_id"].notna()].drop_duplicates(
-            subset=["season", "week", "player_id"]
-        )
-        merged = df.merge(keyed, on=["season", "week", "player_id"], how="left")
+        inj = inj.rename(columns={id_col: "player_id"})
+        inj = inj[inj["player_id"].notna()]
     elif name_col:
         inj["name_key"] = normalize_name(inj[name_col])
         inj["team"] = normalize_team(inj[resolve(inj, "injuries", "team")])
-        keyed = inj[
-            ["season", "week", "team", "name_key", "report_status"]
-        ].drop_duplicates(subset=["season", "week", "team", "name_key"])
-        merged = df.merge(keyed, on=["season", "week", "team", "name_key"], how="left")
     else:
         raise KeyError("injuries: no gsis_id or name column to join on")
 
-    merged["report_status"] = merged["report_status"].fillna("")
-    merged["is_questionable"] = merged["report_status"].eq("Questionable").astype(int)
-    merged["is_doubtful_or_out"] = (
-        merged["report_status"].isin(["Doubtful", "Out"]).astype(int)
+    # A handful of player-weeks carry two report rows. Take the worst of them
+    # rather than whichever happens to sort first.
+    keyed = inj.groupby(keys, as_index=False).agg(
+        practice_code=("practice_code", "max"),
+        is_questionable=("questionable", "max"),
+        report_status=("report_status", "max"),
     )
-    return merged
+
+    merged = df.merge(keyed, on=keys, how="left")
+    merged["report_status"] = merged["report_status"].fillna("")
+    merged["is_questionable"] = merged["is_questionable"].fillna(0).astype(int)
+    # Not on the injury report at all is the healthiest state, hence 0.
+    merged["practice_status_code"] = merged["practice_code"].fillna(0).astype(int)
+    return merged.drop(columns=["practice_code"])
 
 
 def build_opponent_adjustment(df):

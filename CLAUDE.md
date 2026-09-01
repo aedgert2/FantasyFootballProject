@@ -92,10 +92,17 @@ parquet output rather than passing data in-process:
   floor** — the training window was chosen by measurement (lift rises
   monotonically from a 2022 start to a 2019 start on both held-out seasons and
   never degrades), not by habit. Don't extend earlier without re-measuring.
-* **`is_doubtful_or_out` is a constant** — it fires 4 times in 40,330 rows. A
-  player ruled Out has no `player_stats` row, so he has no feature row; the flag
-  can only fire for someone listed Out/Doubtful who played anyway. Not a join
-  bug, a row-grain mismatch. `is_questionable` is real but sparse (4.3%).
+* **Injury severity comes from practice participation, not game status.** An
+  "is out" flag is dead by construction — a player ruled Out has no
+  `player_stats` row and so no feature row (the old `is_doubtful_or_out` fired 4
+  times in 40,330 rows). `practice_status_code` (0 not on report, 1 listed/full,
+  2 limited, 3 DNP) is recorded for players who do play and covers 17.3% of rows
+  vs. 4.3%. Both signals are published pre-kickoff, so neither leaks.
+  **It does not improve accuracy** — worth +0.002 to +0.003, inside seed noise,
+  including on the injury-affected head-to-heads specifically. Kept because it is
+  correct and gives a better injury feature room to grow, not because it pays.
+  Don't re-derive this; the measurement is in README under "A live feature that
+  doesn't pay".
 * **Rolling features cross the season boundary** — grouped by `player_id` alone,
   so week 1 carries form from the prior season's end, and `games_played` counts
   across seasons. Deliberate, but it makes offseason team changes invisible.
@@ -108,13 +115,18 @@ Standard pull is **2019-2025** (40,330 player-weeks). Two held-out seasons:
 
 | Test | Train | Model rho | Baseline rho | Lift | Groups won |
 |------|-------|-----------|--------------|------|------------|
-| 2025 | 2019-2024 | 0.570 | 0.486 | **+0.084** | 59/72 |
-| 2024 | 2019-2023 | 0.587 | 0.507 | **+0.081** | 60/72 |
+| 2025 | 2019-2024 | 0.577 | 0.486 | **+0.091** | 62/72 |
+| 2024 | 2019-2023 | 0.585 | 0.507 | **+0.078** | 58/72 |
 
-Both highly significant (paired t p < 0.0001; bootstrap 95% CI [+0.068, +0.103]
+Both highly significant (paired t p < 0.0001; bootstrap 95% CI [+0.074, +0.110]
 for 2025). **QB is the exception** — lift is not significant in either season
-(p = 0.30 and p = 0.25), so don't claim the model beats the baseline at
+(p = 0.06 and p = 0.28), so don't claim the model beats the baseline at
 quarterback.
+
+**Single-seed numbers are noisy at QB.** Per-seed rho has sd ~0.010 for QB
+against 0.002-0.006 elsewhere, which is the same magnitude as most feature
+changes worth arguing about. Average 5-10 seeds before concluding a change
+helped — a seed-42 QB rho of 0.371 and one of 0.400 are the same model.
 
 Treat this as the regression bar: a change that drops mean lift below ~0.07 on
 either season has probably broken something. But note the asymmetry — leakage

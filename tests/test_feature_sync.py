@@ -45,7 +45,7 @@ def test_non_rolling_features_are_named_columns_build_features_creates():
     produced = {
         "implied_team_total", "spread_line", "total_line", "is_home",
         "def_fp_allowed_roll", "games_played", "is_questionable",
-        "is_doubtful_or_out",
+        "practice_status_code",
     }
     non_rolling = {
         c for c in tm.FEATURE_COLS
