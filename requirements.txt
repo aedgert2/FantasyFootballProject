@@ -1,0 +1,13 @@
+# Pinned to the versions this pipeline was verified against (2021-2024 nflverse
+# pull, test season 2024). Bump deliberately, then re-run the pipeline end to end.
+nflreadpy==0.1.5
+pandas==3.0.5
+polars==1.44.1
+pyarrow==25.0.1
+numpy==2.5.2
+scipy==1.18.1
+scikit-learn==1.9.0   # required by lightgbm.sklearn, not a direct import here
+lightgbm==4.7.0
+
+# Tests only
+pytest==8.4.2
