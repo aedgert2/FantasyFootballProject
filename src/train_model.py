@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from lightgbm import LGBMRegressor
-from scipy.stats import spearmanr
+from scipy.stats import binomtest, spearmanr, ttest_rel, wilcoxon
 
 ROOT = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = ROOT / "data" / "processed"
@@ -63,19 +63,89 @@ LGBM_PARAMS = dict(
 )
 
 
-def mean_group_spearman(df, score_col):
-    """Mean Spearman rho between ``score_col`` and actual points, per week/position."""
-    rhos = []
-    for _, group in df.groupby(["season", "week", "position"]):
-        valid = group[[score_col, TARGET_COL]].dropna()
-        if len(valid) < 3 or valid[score_col].nunique() < 2:
+def group_rho_table(df, score_cols, target_col=TARGET_COL):
+    """Spearman rho per (season, week, position), one column per score.
+
+    A group is kept only if it is usable for *every* score column, so the rhos
+    come out paired — each row compares the model and the baseline over exactly
+    the same players. That pairing is what makes the lift testable.
+    """
+    rows = []
+    for (season, week, position), group in df.groupby(["season", "week", "position"]):
+        valid = group[list(score_cols) + [target_col]].dropna()
+        if len(valid) < 3 or any(valid[c].nunique() < 2 for c in score_cols):
             continue
-        rho = spearmanr(valid[score_col], valid[TARGET_COL]).statistic
-        if not np.isnan(rho):
-            rhos.append(rho)
-    if not rhos:
-        return np.nan, 0
-    return float(np.mean(rhos)), len(rhos)
+        rhos = {c: spearmanr(valid[c], valid[target_col]).statistic for c in score_cols}
+        if any(np.isnan(r) for r in rhos.values()):
+            continue
+        rows.append(
+            {"season": season, "week": week, "position": position, "n": len(valid), **rhos}
+        )
+    return pd.DataFrame(rows)
+
+
+def _fmt_p(p):
+    return "< 0.0001" if p < 0.0001 else f"  {p:.4f}"
+
+
+def significance_report(table, model_col, base_col, n_boot=5000, seed=0):
+    """Report whether the lift over the baseline is distinguishable from noise.
+
+    Runs on the paired per-group differences. The bootstrap resamples whole
+    weeks rather than individual groups, because the positions within one week
+    share the same underlying games and are not independent of each other.
+    """
+    lift = table[model_col] - table[base_col]
+    n = len(lift)
+    print()
+    print("=== Is the lift distinguishable from noise? ===")
+    if n < 3 or np.allclose(lift, 0):
+        print("  too few paired groups to test")
+        return
+
+    wins = int((lift > 0).sum())
+    t_stat, t_p = ttest_rel(table[model_col], table[base_col])
+    sign_p = binomtest(wins, n, 0.5).pvalue
+
+    week_means = table.assign(lift=lift).groupby(["season", "week"])["lift"].mean().to_numpy()
+    rng = np.random.default_rng(seed)
+    draws = rng.integers(0, len(week_means), size=(n_boot, len(week_means)))
+    boot = week_means[draws].mean(axis=1)
+    lo, hi = np.percentile(boot, [2.5, 97.5])
+
+    print(f"  paired groups     {n}   ({len(week_means)} weeks)")
+    print(f"  mean lift         {lift.mean():+.4f}   (sd {lift.std():.4f})")
+    print(f"  groups won        {wins} / {n}")
+    print(f"  paired t-test     t = {t_stat:6.3f}   p = {_fmt_p(t_p)}")
+    try:
+        w_stat, w_p = wilcoxon(table[model_col], table[base_col])
+        print(f"  Wilcoxon signed   W = {w_stat:6.0f}   p = {_fmt_p(w_p)}")
+    except ValueError:
+        pass
+    print(f"  sign test                        p = {_fmt_p(sign_p)}")
+    print(
+        f"  cluster bootstrap 95% CI [{lo:+.4f}, {hi:+.4f}]"
+        f"   ({n_boot:,} reps, resampling whole weeks)"
+    )
+
+    print("\n  per position:")
+    for position, group in table.groupby("position"):
+        g_lift = group[model_col] - group[base_col]
+        if len(g_lift) < 3 or np.allclose(g_lift, 0):
+            print(f"    {position}  {g_lift.mean():+.4f}   (too few groups to test)")
+            continue
+        _, p_pos = ttest_rel(group[model_col], group[base_col])
+        flag = "   not significant" if p_pos > 0.05 else ""
+        print(
+            f"    {position}  {g_lift.mean():+.4f}   "
+            f"{int((g_lift > 0).sum())}/{len(g_lift)}   p = {_fmt_p(p_pos)}{flag}"
+        )
+
+    print(
+        "\n  Groups are not fully independent — the same players recur week to\n"
+        "  week — so the p-values overstate certainty. The bootstrap clusters by\n"
+        "  week to absorb the dependence between positions sharing a game."
+    )
 
 
 def check_feature_sync(df):
@@ -134,6 +204,11 @@ def main():
         default=1,
         help="Drop player-weeks with fewer than this many prior games.",
     )
+    parser.add_argument(
+        "--significance",
+        action="store_true",
+        help="Also test whether the lift over the baseline beats chance.",
+    )
     args = parser.parse_args()
 
     if not args.features.exists():
@@ -159,25 +234,32 @@ def main():
     )
 
     predictions = []
-    rows = []
     for position in POSITIONS:
         model, scored = train_position(train_df, test_df, position, args.target)
         if scored is None:
             continue
         predictions.append(scored)
 
-        mae = float(np.mean(np.abs(scored["predicted_points"] - scored[args.target])))
-        model_rho, n_groups = mean_group_spearman(scored, "predicted_points")
-        base_rho, _ = mean_group_spearman(scored, BASELINE_COL)
+    out = pd.concat(predictions, ignore_index=True)
+    table = group_rho_table(out, ["predicted_points", BASELINE_COL], args.target)
+
+    rows = []
+    for position in POSITIONS:
+        scored = out[out["position"] == position]
+        groups = table[table["position"] == position]
+        if scored.empty or groups.empty:
+            continue
+        model_rho = groups["predicted_points"].mean()
+        base_rho = groups[BASELINE_COL].mean()
         rows.append(
             {
                 "position": position,
                 "n_test": len(scored),
-                "mae": mae,
+                "mae": float(np.mean(np.abs(scored["predicted_points"] - scored[args.target]))),
                 "model_rho": model_rho,
                 "baseline_rho": base_rho,
                 "lift": model_rho - base_rho,
-                "weeks": n_groups,
+                "weeks": len(groups),
             }
         )
 
@@ -197,7 +279,9 @@ def main():
         f"mean lift:         {summary['lift'].mean():+.3f}"
     )
 
-    out = pd.concat(predictions, ignore_index=True)
+    if args.significance:
+        significance_report(table, "predicted_points", BASELINE_COL)
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     out_path = args.out_dir / f"predictions_{args.test_season}.parquet"
     keep = [

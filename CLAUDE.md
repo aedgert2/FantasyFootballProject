@@ -15,10 +15,11 @@ pip install -r requirements.txt
 brew install libomp   # macOS only: LightGBM needs OpenMP at runtime
 
 # Must run in this order — each stage reads the previous stage's output:
-python src/pull_data.py --seasons 2021 2022 2023 2024   # downloads to data/raw/*.parquet
+python src/pull_data.py --seasons 2019 2020 2021 2022 2023 2024 2025
 python src/inspect_schema.py                            # verify raw column names before trusting the join
 python src/build_features.py                            # writes data/processed/features.parquet
-python src/train_model.py --test-season 2024            # writes data/processed/predictions_<season>.parquet
+python src/train_model.py --test-season 2025            # writes data/processed/predictions_<season>.parquet
+python src/train_model.py --test-season 2025 --significance   # adds paired tests on the lift
 
 pytest                                                  # unit tests (no network, no data required)
 ```
@@ -45,7 +46,7 @@ parquet output rather than passing data in-process:
    * Joins `snap_counts` onto `player_stats` by normalized player name + team +
      season/week, not by ID — `snap_counts` is PFR-sourced and has no
      `gsis_id`/`player_id`, so this join is inherently lossy. Prints an
-     "unmatched %" diagnostic after joining (1.1% on 2021-2024). A more robust
+     "unmatched %" diagnostic after joining (0.9% on 2019-2025). A more robust
      fix is `nfl.load_ff_playerids()` as an ID crosswalk instead of name matching.
    * Derives per-team-per-game Vegas context (`implied_team_total`, `is_home`)
      from `schedules` by unpivoting one row-per-game into two rows-per-team
@@ -67,6 +68,11 @@ parquet output rather than passing data in-process:
    problem, not a regression problem. Always compared against the "start whoever
    scored more last week" baseline (`dumb_baseline_rank`) computed from the same
    lagged column (`fp_ppr_shifted`) the model features are built from.
+   `group_rho_table()` computes both rhos over *identical* groups — a group
+   unusable for either score is dropped from both — so the lift compares like
+   with like. `--significance` runs paired t / Wilcoxon / sign tests on those
+   differences plus a bootstrap that resamples whole weeks (positions within a
+   week share games and are not independent).
 
 ## Known constraints
 
@@ -82,13 +88,35 @@ parquet output rather than passing data in-process:
   `prepare_player_stats` drops the redundant one before renaming, otherwise
   pandas produces a duplicate column and `.str` accessors blow up.
 * Vegas lines (`total_line`, `spread_line`) aren't always populated for older
-  seasons. 0% missing on 2021-2024; expect NaNs further back.
+  seasons. 0% missing on 2019-2025; expect NaNs further back. **2019 is the
+  floor** — the training window was chosen by measurement (lift rises
+  monotonically from a 2022 start to a 2019 start on both held-out seasons and
+  never degrades), not by habit. Don't extend earlier without re-measuring.
+* **`is_doubtful_or_out` is a constant** — it fires 4 times in 40,330 rows. A
+  player ruled Out has no `player_stats` row, so he has no feature row; the flag
+  can only fire for someone listed Out/Doubtful who played anyway. Not a join
+  bug, a row-grain mismatch. `is_questionable` is real but sparse (4.3%).
+* **Rolling features cross the season boundary** — grouped by `player_id` alone,
+  so week 1 carries form from the prior season's end, and `games_played` counts
+  across seasons. Deliberate, but it makes offseason team changes invisible.
 * LightGBM's sklearn wrapper needs `scikit-learn` installed even though no
   source file imports it directly.
 
 ## Verified baseline
 
-Trained on 2021-2023, tested on 2024. Mean Spearman rho within (week, position):
-model **0.574** vs. dumb baseline **0.507** (lift **+0.067**); the model beats
-the baseline at all four positions. Treat this as the regression bar — a change
-that drops mean lift below ~0.06 has probably broken something.
+Standard pull is **2019-2025** (40,330 player-weeks). Two held-out seasons:
+
+| Test | Train | Model rho | Baseline rho | Lift | Groups won |
+|------|-------|-----------|--------------|------|------------|
+| 2025 | 2019-2024 | 0.570 | 0.486 | **+0.084** | 59/72 |
+| 2024 | 2019-2023 | 0.587 | 0.507 | **+0.081** | 60/72 |
+
+Both highly significant (paired t p < 0.0001; bootstrap 95% CI [+0.068, +0.103]
+for 2025). **QB is the exception** — lift is not significant in either season
+(p = 0.30 and p = 0.25), so don't claim the model beats the baseline at
+quarterback.
+
+Treat this as the regression bar: a change that drops mean lift below ~0.07 on
+either season has probably broken something. But note the asymmetry — leakage
+makes rho go *up*, not down, so a high number is not proof of health. The
+structural tests in `tests/test_leakage.py` are what guard that direction.
