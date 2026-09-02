@@ -33,9 +33,11 @@ data.
 Four scripts form a strict linear pipeline, each reading the prior stage's
 parquet output rather than passing data in-process:
 
-1. `src/pull_data.py` — pulls four nflverse tables via `nflreadpy`
-   (`load_player_stats`, `load_schedules`, `load_snap_counts`, `load_injuries`)
-   and caches each as `data/raw/<name>.parquet`. Polars under the hood.
+1. `src/pull_data.py` — pulls five nflverse tables via `nflreadpy`
+   (`load_player_stats`, `load_schedules`, `load_snap_counts`, `load_injuries`,
+   `load_participation`) plus a five-column slice of `load_pbp` cached as
+   `pbp_pass.parquet`. Only those pbp columns are kept; the full table is
+   enormous and is needed solely to tell pass plays from run plays.
 2. `src/inspect_schema.py` — diagnostic only, prints columns/sample rows of each
    raw table and checks them against the `EXPECTED` map. Not part of the data
    flow; run it whenever nflverse's schema is suspected to have shifted, since
@@ -120,12 +122,11 @@ pandas. Seed-42 runs of the documented command:
 
 | Test | Model rho | Baseline rho | Lift | Groups won | p |
 |------|-----------|--------------|------|------------|---|
-| 2025 | 0.582 | 0.572 | +0.010 | 42/72 | 0.166 |
-| 2024 | 0.587 | 0.593 | -0.005 | 31/72 | 0.554 |
+| 2025 | 0.583 | 0.572 | +0.011 | 38/72 | 0.151 |
+| 2024 | 0.590 | 0.593 | -0.003 | 33/72 | 0.741 |
 
-Over 10 seeds the lift is -0.006 (2024) and +0.006 (2025). Only WR is positive
-in both seasons (+0.008, +0.020), significant in 10/10 seeds on 2025 and 0/10 on
-2024. RB on 2024 is *significantly worse* than the baseline in 7/10 seeds.
+WR is the only position with a reliable edge (+0.019 on 2025, p = 0.003). RB and
+TE are flat or slightly negative in both seasons.
 
 **Do not restore the old baseline.** It was `fp_ppr_shifted` (last week's
 points), which scores ~+0.06 in the startable tier against the rolling mean's
@@ -165,6 +166,19 @@ Recorded so nobody spends the afternoon re-deriving them:
   the next move.
 * **`practice_status_code` is a real signal worth nothing.** See the constraint
   above.
+* **Routes run / TPRR moved nothing.** Derived from participation + pbp and
+  validated hard (WR median 24-28 routes a game across all seasons, no TPRR
+  above 1, leaderboards reproduce known ones: Michael Thomas .292 in 2019, Puka
+  Nacua .341 in 2025). Over 8 seeds it is worth +0.002 to +0.004 on the full
+  pool. The only consistent gain is QB +0.015 both seasons, because for a QB
+  "routes" is really dropbacks. For the pass catchers it was built for it is
+  ~zero. Kept because the derivation is correct and cheap, not because it pays.
+* **Two traps in the route derivation.** participation's `offense_positions` is
+  100% blank before 2023 — filtering on it silently yields zero routes for
+  2019-2022, so `build_routes` counts every player on the field and lets the
+  merge filter. And the pass flag must come from pbp: participation's own
+  `time_to_throw` has 99.9% precision but misses 12% of pass plays (sacks,
+  scrambles), biased toward mobile QBs. `tests/test_routes.py` covers both.
 
 Treat this as the regression bar: a change that drops mean lift below ~0.07 on
 either season has probably broken something. But note the asymmetry — leakage

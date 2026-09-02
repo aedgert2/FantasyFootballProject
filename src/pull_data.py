@@ -18,7 +18,15 @@ TABLES = {
     "schedules": nfl.load_schedules,
     "snap_counts": nfl.load_snap_counts,
     "injuries": nfl.load_injuries,
+    "participation": nfl.load_participation,
 }
+
+# Play-by-play is only needed to tell pass plays from run plays when deriving
+# routes run, and the full table is enormous, so only these columns are cached.
+# There is no usable shortcut: participation's own time_to_throw has 99.9%
+# precision but misses 12% of pass plays (sacks and scrambles), and that gap is
+# biased toward teams with mobile quarterbacks.
+PBP_COLS = ["game_id", "play_id", "season", "week", "pass"]
 
 
 def pull_table(name, loader, seasons):
@@ -54,6 +62,12 @@ def main():
         path = args.out_dir / f"{name}.parquet"
         df.write_parquet(path)
         print(f"[pull_data] {name}: {df.height:,} rows x {df.width} cols -> {path}")
+
+    print(f"[pull_data] pbp_pass: downloading seasons {args.seasons} (large) ...")
+    pbp = nfl.load_pbp(seasons=args.seasons).select(PBP_COLS)
+    path = args.out_dir / "pbp_pass.parquet"
+    pbp.write_parquet(path)
+    print(f"[pull_data] pbp_pass: {pbp.height:,} rows x {pbp.width} cols -> {path}")
 
     print("[pull_data] done. Next: python src/inspect_schema.py")
 

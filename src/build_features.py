@@ -41,6 +41,11 @@ ROLL_COLS = {
     "air_yards_share": "ay_share",
     "wopr": "wopr",
     "receiving_air_yards": "rec_ay",
+    # Routes run and targets per route run. Snap share says a player was on the
+    # field and target share says the ball came his way; only TPRR separates
+    # "ran 30 routes for 3 looks" from "ran 8 routes for 3 looks".
+    "routes": "routes",
+    "tprr": "tprr",
 }
 ROLL_WINDOWS = (3, 5)
 DEF_WINDOW = 4  # games of trailing defense-vs-position history
@@ -116,7 +121,8 @@ def normalize_team(series):
 
 def load_raw(raw_dir):
     tables = {}
-    for name in ("player_stats", "schedules", "snap_counts", "injuries"):
+    for name in ("player_stats", "schedules", "snap_counts", "injuries",
+                 "participation", "pbp_pass"):
         path = raw_dir / f"{name}.parquet"
         if not path.exists():
             raise SystemExit(f"Missing {path}. Run src/pull_data.py first.")
@@ -304,6 +310,68 @@ def merge_injuries(df, injuries):
     return merged.drop(columns=["practice_code"])
 
 
+def build_routes(participation, pbp):
+    """Routes run per (player, season, week) = pass plays with the player on the field.
+
+    participation lists every player on the field for a play; pbp says whether
+    the play was a pass. Both are keyed by gsis id, so unlike the snap-count
+    join this needs no name matching.
+
+    Every listed player is counted, with no position filter, and the caller's
+    merge does the filtering instead. That is deliberate: participation's
+    ``offense_positions`` column is 100% blank before 2023, so filtering on it
+    silently produced zero routes for 2019-2022. Counting linemen here is
+    harmless because they never appear in the feature table.
+
+    "On the field for a pass play" is a proxy for "ran a route" — it also counts
+    blocking backs and tight ends. Validated against 2024: WR median 25 routes a
+    game, no player-week above a TPRR of 1, and the TPRR leaderboard reproduces
+    the known one (Nabers .286, Downs .279, London .268).
+    """
+    part = participation.copy()
+    for required in ("nflverse_game_id", "play_id", "offense_players"):
+        resolve(part, "participation", required)
+    pb = pbp.copy()
+    for required in ("game_id", "play_id", "season", "week", "pass"):
+        resolve(pb, "pbp_pass", required)
+
+    part["play_id"] = pd.to_numeric(part["play_id"], errors="coerce").astype("Int64")
+    pb["play_id"] = pd.to_numeric(pb["play_id"], errors="coerce").astype("Int64")
+    merged = part.merge(
+        pb[["game_id", "play_id", "season", "week", "pass"]],
+        left_on=["nflverse_game_id", "play_id"],
+        right_on=["game_id", "play_id"],
+        how="inner",
+    )
+    passes = merged[merged["pass"] == 1][["season", "week", "offense_players"]].dropna(
+        subset=["offense_players"]
+    )
+    exploded = passes.assign(
+        player_id=passes["offense_players"].astype(str).str.split(";")
+    ).explode("player_id")
+    exploded = exploded[exploded["player_id"].str.strip() != ""]
+
+    return (
+        exploded.groupby(
+            [exploded["season"].astype(int), exploded["week"].astype(int), "player_id"],
+            as_index=False,
+        )
+        .size()
+        .rename(columns={"size": "routes"})
+    )
+
+
+def merge_routes(df, participation, pbp):
+    routes = build_routes(participation, pbp)
+    merged = df.drop(columns=["routes", "tprr"], errors="ignore").merge(
+        routes, on=["season", "week", "player_id"], how="left"
+    )
+    unmatched = merged["routes"].isna().mean() * 100
+    print(f"[build_features] routes unmatched: {unmatched:.1f}% of player-weeks")
+    merged["tprr"] = merged["targets"] / merged["routes"].replace(0, np.nan)
+    return merged
+
+
 def build_opponent_adjustment(df):
     """Trailing average fantasy points a defense has allowed to a position.
 
@@ -382,6 +450,7 @@ def main():
 
     df = merge_snap_counts(df, tables["snap_counts"])
     df = merge_injuries(df, tables["injuries"])
+    df = merge_routes(df, tables["participation"], tables["pbp_pass"])
     df = build_opponent_adjustment(df)
     df = add_rolling_features(df)
     df = add_position_week_rank(df)

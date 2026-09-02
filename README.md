@@ -107,12 +107,13 @@ seed-42 run of the documented command:
 
 | Test season | Model rho | Baseline rho | Lift | Groups won | p |
 |---|---|---|---|---|---|
-| 2025 | 0.582 | 0.572 | **+0.010** | 42/72 | 0.166 |
-| 2024 | 0.587 | 0.593 | **-0.005** | 31/72 | 0.554 |
+| 2025 | 0.583 | 0.572 | **+0.011** | 38/72 | 0.151 |
+| 2024 | 0.590 | 0.593 | **-0.003** | 33/72 | 0.741 |
 
-Neither is significant. The 2025 bootstrap CI is [-0.002, +0.023]; 2024's is
-[-0.021, +0.012]. Averaged over 10 seeds the lift is **-0.006 on 2024 and
-+0.006 on 2025** — a coin flip.
+Neither is significant. The 2025 bootstrap CI is [-0.004, +0.027] and 2024's
+straddles zero too. WR is the one position with a reliable edge (+0.019 on 2025,
+p = 0.003, ahead in 15 of 18 weeks); RB and TE are flat or slightly negative in
+both seasons.
 
 Per position, over 10 seeds, with the number of seeds reaching p < 0.05:
 
@@ -178,6 +179,44 @@ autocorrelation of PPR points is r = 0.487 (r-squared 0.237), so roughly
 three-quarters of weekly fantasy scoring is not predictable from prior
 production at all. That ceiling is the reason, not a modelling defect: dropping
 the weakest feature changes nothing, and a minimal 4-feature model is worse.
+
+## Routes run and TPRR: derived, validated, and it changed nothing
+
+The best remaining idea was targets per route run — the metric that separates
+"ran 30 routes for 3 looks" from "ran 8 routes for 3 looks", which neither snap
+share nor target share can do. It is derivable: `load_participation` lists every
+player on the field for each play and covers 2019-2025, and `load_pbp` says
+which plays were passes. Both key off gsis id, so no name matching.
+
+The derivation validates well. Median routes per game come out at WR 24-28, TE
+18-20, RB 13-15 and QB 35-39 (dropbacks) across all seven seasons, no
+player-week exceeds a TPRR of 1, and the leaderboards reproduce the known ones —
+Michael Thomas .292 leading 2019 (his 149-catch year), Puka Nacua .341 leading
+2025. Median WR TPRR is .174 in both 2019 and 2025.
+
+It does not help. Over 8 seeds:
+
+| | full pool | top-24 | top-12 |
+|---|---|---|---|
+| 2024 | +0.002 | +0.001 | +0.013 |
+| 2025 | +0.004 | +0.006 | -0.001 |
+
+By position the only consistent gain is **QB, +0.015 in both seasons** — because
+for a quarterback "routes" is really dropbacks, a pass-volume signal. For the
+pass catchers it was built for, it is +0.002 to -0.005. The model with routes
+still loses to the 5-game average in the startable tier in both seasons (0.196
+vs 0.215 on 2024; 0.188 vs 0.218 on 2025).
+
+Kept because the derivation is correct, cheap and well-tested, and TPRR is worth
+having in the feature table regardless. Not kept because it earned its place.
+
+**Two traps worth knowing if you touch this code:** participation's
+`offense_positions` column is 100% blank before 2023, so filtering on it
+silently produces zero routes for four full seasons — the derivation therefore
+counts every player on the field and lets the merge filter. And the pass flag
+must come from pbp: participation's own `time_to_throw` has 99.9% precision but
+misses 12% of pass plays (sacks and scrambles), biased toward mobile
+quarterbacks.
 
 ## Opportunity features: the one change that moved the tier
 
@@ -252,7 +291,7 @@ second one is true here.
 
 ## Next steps (from the original notes)
 
-- **More usage signal.** The oracle probe says knowing this week's targets would order the tier at +0.572 against the model's +0.208, so usage forecasting is where the remaining headroom is. Team-level pace and pass rate, red-zone share, and routes run are the obvious next candidates.
+- **Probably nothing in modelling.** Routes/TPRR was the best remaining public-data idea and it moved nothing. Combined with the r-squared 0.237 ceiling, the honest read is that public box-score data supports a rolling average and not much more. Remaining ideas need data we do not have: market player-prop lines, or archived weekly consensus rankings (start archiving `load_ff_rankings` now — it is a current snapshot only, so history is not recoverable later).
 - **Position-specific feature sets.** The opportunity features help WR/TE and slightly hurt RB. One feature list for all four positions is leaving something on the table.
 - **`LambdaRank`, but not yet.** It optimizes the ordering the model is actually graded on, which is a correctness argument on its own. Deprioritized because the capacity-concentration probe above suggests reweighting toward the top of the list hurts here. Worth revisiting once the features carry more tier signal.
 - **Decide whether to keep `practice_status_code`.** It is a genuine signal that does not help the metric (see "A live feature that doesn't pay" below). Keeping it costs nothing and gives a better injury feature somewhere to grow from; dropping it takes the model to 21 features and loses nothing measurable.
