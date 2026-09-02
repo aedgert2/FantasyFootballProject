@@ -95,96 +95,89 @@ likely to break silently rather than loudly:
 - **The injury signal comes from practice participation, not game status.** An "is out" flag is structurally dead here: a player ruled Out doesn't play, so he has no `player_stats` row and therefore no feature row — the old `is_doubtful_or_out` fired 4 times in 40,330 rows. `practice_status_code` replaces it (0 not on the report, 1 listed/full, 2 limited, 3 did not participate), which is recorded for players who *do* play and reaches **17.3%** of rows against the game designation's 4.3%. Both are published before kickoff, so neither leaks. The signal is real and monotonic against a player's own 3-game average: **+0.08 / -0.39 / -1.05 / -1.62** PPR by code. It does *not*, however, measurably improve ranking accuracy — see below.
 - **Rolling windows cross the season boundary.** Features group by `player_id` alone, so week 1 of a season carries form from the end of the previous one. Defensible — better than starting every season blind — but it means an offseason team change is invisible to the feature. `games_played` counts across seasons for the same reason.
 
-## Results
+## Results — read this before quoting any number
 
-Two held-out seasons, each trained on every prior season. The metric is mean
-Spearman rho within each (week, position) group — the ordering is what you act
-on, so the absolute point totals are deliberately discarded.
+**The model does not beat sorting players by their 5-game scoring average.**
+That is the headline, and it took a baseline change to see it.
 
-### 2025 — the primary result
+### The honest comparison
 
-Trained on 2019-2024 (33,067 rows), tested on 2025 (5,914 rows).
+Baseline is `fp_ppr_roll5` — one of the model's own input features. Both seasons,
+seed-42 run of the documented command:
 
-| Position | n    | MAE  | Model rho | Baseline rho | Lift   |
-|----------|------|------|-----------|--------------|--------|
-| QB       | 650  | 7.00 | 0.413     | 0.343        | +0.069 |
-| RB       | 1539 | 4.64 | 0.701     | 0.626        | +0.075 |
-| WR       | 2461 | 4.41 | 0.646     | 0.502        | +0.144 |
-| TE       | 1264 | 3.85 | 0.569     | 0.473        | +0.096 |
-| **Mean** |      |      | **0.582** | **0.486**    | **+0.096** |
+| Test season | Model rho | Baseline rho | Lift | Groups won | p |
+|---|---|---|---|---|---|
+| 2025 | 0.582 | 0.572 | **+0.010** | 42/72 | 0.166 |
+| 2024 | 0.587 | 0.593 | **-0.005** | 31/72 | 0.554 |
 
-In decisions rather than correlations: over all 275,564 same-week same-position
-head-to-heads, the model picks the higher scorer **73.7%** of the time against
-the baseline's **67.2%**.
+Neither is significant. The 2025 bootstrap CI is [-0.002, +0.023]; 2024's is
+[-0.021, +0.012]. Averaged over 10 seeds the lift is **-0.006 on 2024 and
++0.006 on 2025** — a coin flip.
 
-### 2024 — second held-out season
+Per position, over 10 seeds, with the number of seeds reaching p < 0.05:
 
-Trained on 2019-2023. Mean model rho **0.587** vs. baseline **0.507**, lift
-**+0.081**, ahead in 57 of 72 groups. Two independent seasons landing within
-0.005 of each other is the reason to believe the edge is real.
+| Position | 2024 lift | 2024 sig | 2025 lift | 2025 sig |
+|---|---|---|---|---|
+| QB | -0.009 | 0/10 | +0.016 | 0/10 |
+| RB | **-0.016** | **7/10 (worse)** | +0.001 | 0/10 |
+| WR | +0.008 | 0/10 | **+0.020** | **10/10** |
+| TE | -0.008 | 0/10 | -0.013 | 0/10 |
 
-### Is the lift significant?
+WR is the only position with a positive lift in both seasons, and it is only
+reliably significant in one. RB in 2024 is *significantly worse* than the
+rolling average in 7 of 10 seeds.
 
-`--significance` runs paired tests on the 72 per-group differences (each group
-yields a model rho and a baseline rho over identical players, so they pair).
+### Against trivial heuristics, on identical rows
 
-| | 2025 | 2024 |
+| Method | 2024 top-12 | 2025 top-12 | 2024 full | 2025 full |
+|---|---|---|---|---|
+| LightGBM (30 features) | +0.187 | +0.201 | +0.576 | +0.574 |
+| **5-game average** | **+0.212** | **+0.222** | +0.581 | +0.570 |
+| Season-to-date average | +0.180 | **+0.228** | **+0.588** | **+0.579** |
+| 3-game average | +0.132 | +0.168 | +0.571 | +0.559 |
+| Last week only (old baseline) | +0.059 | +0.101 | +0.505 | +0.487 |
+
+In the startable tier — the only place a start/sit tool matters — a rolling mean
+beats the model in both seasons.
+
+### Why this was hidden for so long
+
+The original baseline was "start whoever scored more last week," which scores
++0.059 to +0.101 in the tier against the rolling mean's +0.212 to +0.222. Every
+result measured against it looked excellent: a +0.096 lift, p < 0.0001,
+bootstrap CIs well clear of zero. All of that arithmetic was correct and none of
+it meant what it appeared to. **A weak baseline is the most expensive mistake in
+this project's history** — it validated months of work that was not adding value.
+
+### When the model disagrees with the average, who wins?
+
+If the model can't beat the rolling mean on aggregate, it might still be right
+where it disagrees. Tested pairwise: for every pair of players the model and the
+rolling mean order differently, who picked the higher scorer?
+
+| Population | Disagreements | Model wins |
 |---|---|---|
-| Mean lift | +0.096 | +0.081 |
-| Groups won | 59/72 | 57/72 |
-| Paired *t* | 9.22, p < 0.0001 | 6.36, p < 0.0001 |
-| Bootstrap 95% CI | [+0.078, +0.117] | [+0.057, +0.108] |
+| All players, 2024 | 13.4% of pairs | 49.6% |
+| All players, 2025 | 12.5% of pairs | 51.6% |
+| **Startable tier, 2024** | 33.0% of pairs | **49.3%** |
+| **Startable tier, 2025** | 30.8% of pairs | **48.9%** |
 
-The CI comes from resampling whole **weeks**, not groups, because positions
-within a week share the same games and aren't independent.
+Coin flips, and slightly *below* even in the tier. Filtering to the model's most
+confident quarter of disagreements lifts tier accuracy to ~53%, but pairs within
+a week are not independent so that is weaker than its sample size suggests.
 
-**Quarterback is the exception, and don't trust a single run of it.** Measured
-across 12 seeds, the QB lift is +0.057 on 2025 and +0.041 on 2024, and it clears
-p < 0.05 in **4 of 12 seeds on 2025 and 0 of 12 on 2024** (2025 p ranges
-0.017-0.146). The table above happens to show p = 0.027 for QB because the
-documented command uses a fixed seed that lands on the favourable side — that is
-not a finding. Treat QB as unresolved: possibly a small real edge on 2025, no
-evidence of one on 2024. Its per-seed rho has sd ~0.010 against 0.002-0.006 at
-the other positions, so always average seeds before concluding anything about it. It fits the feature story: snap share is the model's
-strongest signal for skill players and carries no information for quarterbacks,
-who never leave the field.
+On the full pool, high-confidence disagreements do reach 56-58% — but the full
+pool is the easy problem (separating startable players from WR5s), not a lineup
+decision.
 
-### The startable tier is harder, but the model still works there
+### What the project honestly is
 
-Rho depends heavily on how wide a pool it spans, so the headline number is not
-the whole story. Measured on a **neutral** tier — top-K by prior form, chosen
-without reference to the model — for 2025:
-
-| Signal | Top-12 | Top-24 | Full pool |
-|--------|--------|--------|-----------|
-| **Model** | **+0.208** | **+0.264** | **+0.582** |
-| Baseline (last week's points) | +0.100 | +0.157 | +0.486 |
-| Prior form (`fp_ppr_roll3`) | +0.159 | +0.221 | +0.562 |
-
-Ordering a full position pool that runs from zero-point WR5s to a 40-point
-ceiling is largely easy, and much of the headline comes from that easy part.
-Among the dozen players you would genuinely consider starting the task is far
-harder — but the model still roughly doubles the baseline there (+0.208 vs
-+0.100), a lift comparable to its full-pool lift.
-
-**How you define the tier matters enormously.** An earlier version of this
-section measured the tier as "the model's own top 12" and reported a near-zero
-correlation. That was a measurement artifact: conditioning on high predicted
-values compresses predicted variance, so rho falls mechanically whether or not
-the model is any good. Select the pool with something independent of the model
-before drawing conclusions from it.
-
-### How much headroom is left
-
-| Oracle signal (not knowable pre-game) | Top-12 | Top-24 |
-|---------------------------------------|--------|--------|
-| Actual targets | **+0.572** | +0.569 |
-| Actual snap share | +0.262 | +0.331 |
-
-The tier is not noise-dominated. Knowing this week's target count would order it
-at +0.572, roughly triple what the model manages. The binding constraint is
-forecasting usage, not irreducible randomness — which is why the opportunity
-features below were the next thing tried, and where further work should go.
+A clean, well-tested pipeline that reproduces the accuracy of a 5-game rolling
+average, with a possible small edge at wide receiver. Week-to-week
+autocorrelation of PPR points is r = 0.487 (r-squared 0.237), so roughly
+three-quarters of weekly fantasy scoring is not predictable from prior
+production at all. That ceiling is the reason, not a modelling defect: dropping
+the weakest feature changes nothing, and a minimal 4-feature model is worse.
 
 ## Opportunity features: the one change that moved the tier
 

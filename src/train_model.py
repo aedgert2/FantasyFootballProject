@@ -5,8 +5,15 @@ correlation between predicted and actual order *within* each
 (season, week, position) group. MAE is reported too, but a model that nails
 point totals and gets the order wrong is useless here.
 
-Every run is compared against ``dumb_baseline_rank`` — "start whoever scored
-more last week" — built from the same lagged column the features come from.
+Every run is compared against ``baseline_rank`` — "start whoever has the better
+5-game average". That baseline is deliberately strong: it is one of the model's
+own input features, so the comparison asks whether 30 features and four gradient
+boosters actually beat one line of pandas. Measured on 2024 and 2025 they
+roughly tie, and the rolling mean wins inside the startable tier.
+
+An earlier version used last week's points instead. That baseline is far too
+weak — it scores ~+0.06 to +0.10 in the tier against the rolling mean's ~+0.21 —
+and it flattered every result measured against it.
 """
 
 import argparse
@@ -22,7 +29,7 @@ PROCESSED_DIR = ROOT / "data" / "processed"
 
 POSITIONS = ("QB", "RB", "WR", "TE")
 TARGET_COL = "fantasy_points_ppr"
-BASELINE_COL = "fp_ppr_shifted"
+BASELINE_COL = "fp_ppr_roll5"   # the bar to clear: sort by 5-game average
 
 # KEEP IN SYNC with ROLL_COLS / ROLL_WINDOWS in build_features.py.
 FEATURE_COLS = [
@@ -183,8 +190,8 @@ def train_position(train_df, test_df, position, target_col):
         .rank(ascending=False, method="min")
         .astype(int)
     )
-    # "Start whoever scored more last week."
-    test_pos["dumb_baseline_rank"] = (
+    # "Start whoever has the better 5-game average."
+    test_pos["baseline_rank"] = (
         test_pos.groupby(["season", "week"])[BASELINE_COL]
         .rank(ascending=False, method="min")
     )
@@ -304,7 +311,7 @@ def main():
         "position_week_rank",
         "predicted_points",
         "predicted_rank",
-        "dumb_baseline_rank",
+        "baseline_rank",
     ]
     out[[c for c in keep if c in out.columns]].to_parquet(out_path, index=False)
     print(f"\n[train_model] wrote {len(out):,} predictions -> {out_path}")

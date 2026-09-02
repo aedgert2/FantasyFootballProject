@@ -111,22 +111,33 @@ parquet output rather than passing data in-process:
 
 ## Verified baseline
 
-Standard pull is **2019-2025** (40,330 player-weeks). Two held-out seasons:
+Standard pull is **2019-2025** (40,330 player-weeks).
 
-| Test | Train | Model rho | Baseline rho | Lift | Groups won |
-|------|-------|-----------|--------------|------|------------|
-| 2025 | 2019-2024 | 0.582 | 0.486 | **+0.096** | 59/72 |
-| 2024 | 2019-2023 | 0.587 | 0.507 | **+0.081** | 57/72 |
+**The model does not beat sorting by `fp_ppr_roll5` (a 5-game average).** That
+column is `BASELINE_COL`, and it is deliberately one of the model's own input
+features — the comparison asks whether the whole pipeline beats one line of
+pandas. Seed-42 runs of the documented command:
 
-Both highly significant (paired t p < 0.0001; bootstrap 95% CI [+0.078, +0.117]
-for 2025).
+| Test | Model rho | Baseline rho | Lift | Groups won | p |
+|------|-----------|--------------|------|------------|---|
+| 2025 | 0.582 | 0.572 | +0.010 | 42/72 | 0.166 |
+| 2024 | 0.587 | 0.593 | -0.005 | 31/72 | 0.554 |
 
-**QB is unresolved, and a single run will lie to you about it.** Across 12
-seeds the QB lift clears p < 0.05 in 4/12 seeds on 2025 and 0/12 on 2024.
-`--significance` at the fixed default seed currently prints p = 0.027 for QB on
-2025; that is a lucky draw, not a result. Per-seed rho has sd ~0.010 at QB
-against 0.002-0.006 elsewhere — the same magnitude as most changes worth
-arguing about. **Average 5-10 seeds before concluding any change helped.**
+Over 10 seeds the lift is -0.006 (2024) and +0.006 (2025). Only WR is positive
+in both seasons (+0.008, +0.020), significant in 10/10 seeds on 2025 and 0/10 on
+2024. RB on 2024 is *significantly worse* than the baseline in 7/10 seeds.
+
+**Do not restore the old baseline.** It was `fp_ppr_shifted` (last week's
+points), which scores ~+0.06 in the startable tier against the rolling mean's
+~+0.21. Measured against it the model showed a +0.096 lift at p < 0.0001, and
+that number was meaningless. `tests/test_feature_sync.py` guards against
+reverting it.
+
+**Regression bar:** there is no positive lift to protect. The bar is now
+"matches the rolling mean" — a change that pushes the lift below about -0.02 on
+either season has made things actively worse. Note the asymmetry too: leakage
+makes rho go *up*, so a suddenly-large positive lift is a bug signal, not a win.
+`tests/test_leakage.py` guards that direction.
 
 ## Tier evaluation
 

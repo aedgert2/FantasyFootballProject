@@ -32,8 +32,18 @@ def test_no_rolling_feature_is_built_and_then_ignored():
 
 
 def test_baseline_column_is_produced_by_the_feature_builder():
-    shorts = set(bf.ROLL_COLS.values())
-    assert tm.BASELINE_COL.replace("_shifted", "") in shorts
+    built = {f"{short}_shifted" for short in bf.ROLL_COLS.values()} | {
+        f"{short}_roll{w}" for short in bf.ROLL_COLS.values() for w in bf.ROLL_WINDOWS
+    }
+    assert tm.BASELINE_COL in built, (
+        f"BASELINE_COL {tm.BASELINE_COL!r} is not a column build_features produces."
+    )
+
+
+def test_baseline_is_not_the_trivially_weak_one():
+    # Last week's points scores ~+0.06 in the startable tier against the rolling
+    # mean's ~+0.21. Measuring against it flatters everything; don't go back.
+    assert tm.BASELINE_COL != "fp_ppr_shifted"
 
 
 def test_target_matches_across_stages():
