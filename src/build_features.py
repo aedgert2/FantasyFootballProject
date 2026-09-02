@@ -35,6 +35,12 @@ ROLL_COLS = {
     "rushing_yards": "rush_yds",
     "passing_yards": "pass_yds",
     "offense_pct": "snap_pct",
+    # Opportunity share. Snap share says a player was on the field; these say
+    # the offense actually went to him, which is the stickier signal.
+    "target_share": "tgt_share",
+    "air_yards_share": "ay_share",
+    "wopr": "wopr",
+    "receiving_air_yards": "rec_ay",
 }
 ROLL_WINDOWS = (3, 5)
 DEF_WINDOW = 4  # games of trailing defense-vs-position history

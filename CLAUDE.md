@@ -115,18 +115,45 @@ Standard pull is **2019-2025** (40,330 player-weeks). Two held-out seasons:
 
 | Test | Train | Model rho | Baseline rho | Lift | Groups won |
 |------|-------|-----------|--------------|------|------------|
-| 2025 | 2019-2024 | 0.577 | 0.486 | **+0.091** | 62/72 |
-| 2024 | 2019-2023 | 0.585 | 0.507 | **+0.078** | 58/72 |
+| 2025 | 2019-2024 | 0.582 | 0.486 | **+0.096** | 59/72 |
+| 2024 | 2019-2023 | 0.587 | 0.507 | **+0.081** | 57/72 |
 
-Both highly significant (paired t p < 0.0001; bootstrap 95% CI [+0.074, +0.110]
-for 2025). **QB is the exception** — lift is not significant in either season
-(p = 0.06 and p = 0.28), so don't claim the model beats the baseline at
-quarterback.
+Both highly significant (paired t p < 0.0001; bootstrap 95% CI [+0.078, +0.117]
+for 2025).
 
-**Single-seed numbers are noisy at QB.** Per-seed rho has sd ~0.010 for QB
-against 0.002-0.006 elsewhere, which is the same magnitude as most feature
-changes worth arguing about. Average 5-10 seeds before concluding a change
-helped — a seed-42 QB rho of 0.371 and one of 0.400 are the same model.
+**QB is unresolved, and a single run will lie to you about it.** Across 12
+seeds the QB lift clears p < 0.05 in 4/12 seeds on 2025 and 0/12 on 2024.
+`--significance` at the fixed default seed currently prints p = 0.027 for QB on
+2025; that is a lucky draw, not a result. Per-seed rho has sd ~0.010 at QB
+against 0.002-0.006 elsewhere — the same magnitude as most changes worth
+arguing about. **Average 5-10 seeds before concluding any change helped.**
+
+## Tier evaluation
+
+The headline rho covers the full position pool, most of which is easy. Evaluate
+the *startable tier* separately, and define that tier with something independent
+of the model — top-K by `fp_ppr_roll3` works. Selecting the tier by the model's
+own predictions compresses predicted variance and drives rho toward zero
+mechanically; an earlier version of the README reported a near-zero tier
+correlation for exactly that reason and it was wrong.
+
+Neutral tier, 2025: model +0.208 (top-12) / +0.264 (top-24) / +0.582 (full)
+against a baseline of +0.100 / +0.157 / +0.486.
+
+Headroom: actual (unknowable) target counts order the top-12 at +0.572, so the
+tier is not noise-dominated — usage forecasting is the binding constraint.
+
+## Two measured dead ends
+
+Recorded so nobody spends the afternoon re-deriving them:
+
+* **Concentrating capacity on the tier hurts.** Sample-weighting or restricting
+  training to the top 12/24 was negative in all 10 comparisons, with a clean
+  dose-response. The easy rows teach the feature-to-points relationship that
+  orders the good players. This is the main evidence against `LambdaRank` being
+  the next move.
+* **`practice_status_code` is a real signal worth nothing.** See the constraint
+  above.
 
 Treat this as the regression bar: a change that drops mean lift below ~0.07 on
 either season has probably broken something. But note the asymmetry — leakage

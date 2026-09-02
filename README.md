@@ -107,21 +107,21 @@ Trained on 2019-2024 (33,067 rows), tested on 2025 (5,914 rows).
 
 | Position | n    | MAE  | Model rho | Baseline rho | Lift   |
 |----------|------|------|-----------|--------------|--------|
-| QB       | 650  | 7.01 | 0.400     | 0.343        | +0.056 |
-| RB       | 1539 | 4.65 | 0.701     | 0.626        | +0.075 |
-| WR       | 2461 | 4.42 | 0.639     | 0.502        | +0.137 |
-| TE       | 1264 | 3.84 | 0.567     | 0.473        | +0.095 |
-| **Mean** |      |      | **0.577** | **0.486**    | **+0.091** |
+| QB       | 650  | 7.00 | 0.413     | 0.343        | +0.069 |
+| RB       | 1539 | 4.64 | 0.701     | 0.626        | +0.075 |
+| WR       | 2461 | 4.41 | 0.646     | 0.502        | +0.144 |
+| TE       | 1264 | 3.85 | 0.569     | 0.473        | +0.096 |
+| **Mean** |      |      | **0.582** | **0.486**    | **+0.096** |
 
 In decisions rather than correlations: over all 275,564 same-week same-position
-head-to-heads, the model picks the higher scorer **73.6%** of the time against
+head-to-heads, the model picks the higher scorer **73.7%** of the time against
 the baseline's **67.2%**.
 
 ### 2024 — second held-out season
 
-Trained on 2019-2023. Mean model rho **0.585** vs. baseline **0.507**, lift
-**+0.078**, ahead in 58 of 72 groups. Two independent seasons landing within
-0.013 of each other is the reason to believe the edge is real.
+Trained on 2019-2023. Mean model rho **0.587** vs. baseline **0.507**, lift
+**+0.081**, ahead in 57 of 72 groups. Two independent seasons landing within
+0.005 of each other is the reason to believe the edge is real.
 
 ### Is the lift significant?
 
@@ -130,50 +130,105 @@ yields a model rho and a baseline rho over identical players, so they pair).
 
 | | 2025 | 2024 |
 |---|---|---|
-| Mean lift | +0.091 | +0.078 |
-| Groups won | 62/72 | 58/72 |
-| Paired *t* | 8.99, p < 0.0001 | 6.18, p < 0.0001 |
-| Bootstrap 95% CI | [+0.074, +0.110] | [+0.053, +0.106] |
+| Mean lift | +0.096 | +0.081 |
+| Groups won | 59/72 | 57/72 |
+| Paired *t* | 9.22, p < 0.0001 | 6.36, p < 0.0001 |
+| Bootstrap 95% CI | [+0.078, +0.117] | [+0.057, +0.108] |
 
 The CI comes from resampling whole **weeks**, not groups, because positions
 within a week share the same games and aren't independent.
 
-**Quarterback is the exception.** The lift is +0.056 in 2025 (p = 0.06) and
-+0.041 in 2024 (p = 0.28) — not significant in either. The model does not beat
-"start last week's higher scorer" at QB, and that replicates across two
-independent seasons. Read the QB row with extra caution: its per-seed rho has a
-standard deviation of about 0.010 (the other positions are nearer 0.002-0.006),
-so a single run's QB number swings more than the others. Numbers here are from
-the documented command at its fixed seed; average over seeds before treating any
-QB movement as real. It fits the feature story: snap share is the model's
+**Quarterback is the exception, and don't trust a single run of it.** Measured
+across 12 seeds, the QB lift is +0.057 on 2025 and +0.041 on 2024, and it clears
+p < 0.05 in **4 of 12 seeds on 2025 and 0 of 12 on 2024** (2025 p ranges
+0.017-0.146). The table above happens to show p = 0.027 for QB because the
+documented command uses a fixed seed that lands on the favourable side — that is
+not a finding. Treat QB as unresolved: possibly a small real edge on 2025, no
+evidence of one on 2024. Its per-seed rho has sd ~0.010 against 0.002-0.006 at
+the other positions, so always average seeds before concluding anything about it. It fits the feature story: snap share is the model's
 strongest signal for skill players and carries no information for quarterbacks,
 who never leave the field.
 
-### The headline does not describe your actual decision
+### The startable tier is harder, but the model still works there
 
-Rho depends heavily on how wide a pool it spans, and the effect here is large
-enough to change how you should read every number above. Averaged over all 72
-groups in 2025, restricting to the top of the model's own board:
+Rho depends heavily on how wide a pool it spans, so the headline number is not
+the whole story. Measured on a **neutral** tier — top-K by prior form, chosen
+without reference to the model — for 2025:
 
-| Pool | Mean rho |
-|------|----------|
-| Full position pool | **+0.577** |
-| Model's top 24 | +0.182 |
-| Model's top 12 | +0.060 |
-| Model's top 8 | +0.081 |
-| Model's top 5 | +0.101 |
+| Signal | Top-12 | Top-24 | Full pool |
+|--------|--------|--------|-----------|
+| **Model** | **+0.208** | **+0.264** | **+0.582** |
+| Baseline (last week's points) | +0.100 | +0.157 | +0.486 |
+| Prior form (`fp_ppr_roll3`) | +0.159 | +0.221 | +0.562 |
 
-Sorting a full position pool that runs from zero-point WR5s to a 40-point
-ceiling is largely easy, and most of the headline rho comes from that easy part.
-Among the dozen or so players you would genuinely consider starting, the
-ordering signal is close to gone.
+Ordering a full position pool that runs from zero-point WR5s to a 40-point
+ceiling is largely easy, and much of the headline comes from that easy part.
+Among the dozen players you would genuinely consider starting the task is far
+harder — but the model still roughly doubles the baseline there (+0.208 vs
++0.100), a lift comparable to its full-pool lift.
 
-This is not a flaw in the metric — it is the metric behaving correctly under
-range restriction — but it does mean **0.577 is not the number that describes a
-real start/sit call.** Anyone quoting the headline as "the model is right 73% of
-the time about my lineup" is overstating it. If the startable tier is the
-decision you care about, that is what should be measured and optimized;
-`LambdaRank` with a top-k objective is the natural way to attack it.
+**How you define the tier matters enormously.** An earlier version of this
+section measured the tier as "the model's own top 12" and reported a near-zero
+correlation. That was a measurement artifact: conditioning on high predicted
+values compresses predicted variance, so rho falls mechanically whether or not
+the model is any good. Select the pool with something independent of the model
+before drawing conclusions from it.
+
+### How much headroom is left
+
+| Oracle signal (not knowable pre-game) | Top-12 | Top-24 |
+|---------------------------------------|--------|--------|
+| Actual targets | **+0.572** | +0.569 |
+| Actual snap share | +0.262 | +0.331 |
+
+The tier is not noise-dominated. Knowing this week's target count would order it
+at +0.572, roughly triple what the model manages. The binding constraint is
+forecasting usage, not irreducible randomness — which is why the opportunity
+features below were the next thing tried, and where further work should go.
+
+## Opportunity features: the one change that moved the tier
+
+`target_share`, `air_yards_share`, `wopr` and `receiving_air_yards` were already
+in the raw nflverse pull and unused. They are opportunity-share metrics — snap
+share says a player was on the field, target share says the offense actually
+went to him — and they are 100% populated for every position. Adding them (7
+rolling sources to 11, 22 features to 30) does this, over 6 seeds:
+
+| | Top-12 | Top-24 | Full pool |
+|---|--------|--------|-----------|
+| 2024 | **+0.024** | +0.016 | +0.000 |
+| 2025 | **+0.008** | +0.006 | +0.002 |
+
+They pay in the startable tier and do nothing on the full pool, which is exactly
+the shape you want — the full pool was never the hard part. By position on the
+full pool, WR (+0.005) and TE (+0.005) gain in both seasons while RB loses
+slightly, consistent with these being receiving-usage metrics.
+
+This is the only change measured in this project so far that moved tier
+performance. `racr` and the EPA columns were left out: they are efficiency
+ratios rather than opportunity, they regress hard, and they are only 69-89%
+populated for skill positions.
+
+## Capacity concentration: the thing that doesn't work
+
+Before adding features, the cheaper hypothesis was tested — that the model wastes
+capacity on easy rows and should focus on the startable tier. It is wrong, and
+consistently so:
+
+| Scheme | 2024 top-12 | 2025 top-12 | Full pool (2025) |
+|---|---|---|---|
+| **Uniform (control)** | **+0.164** | **+0.182** | +0.576 |
+| Weight x3 top-12 | +0.154 | +0.178 | +0.577 |
+| Weight x10 top-12 | +0.157 | +0.175 | +0.582 |
+| Train only top-24 | +0.130 | +0.152 | +0.484 |
+| Train only top-12 | +0.129 | +0.160 | +0.190 |
+
+All 10 comparisons negative, with a clean dose-response: the harder you
+concentrate, the worse the tier gets. The "easy" rows are not wasted capacity —
+they are what teaches the model the feature-to-points relationship that orders
+the good players. This is also the main evidence against `LambdaRank` being the
+next move, since it reallocates gradient toward the top of each list in a more
+sophisticated version of the same idea.
 
 ## A live feature that doesn't pay
 
@@ -204,7 +259,9 @@ second one is true here.
 
 ## Next steps (from the original notes)
 
-- **Try `LambdaRank`.** The model optimizes squared error on points and the ordering is imposed afterwards, but only the ordering is graded. LightGBM's ranking objective with each (week, position) as a query group optimizes the actual target directly. This is the highest-value change available.
+- **More usage signal.** The oracle probe says knowing this week's targets would order the tier at +0.572 against the model's +0.208, so usage forecasting is where the remaining headroom is. Team-level pace and pass rate, red-zone share, and routes run are the obvious next candidates.
+- **Position-specific feature sets.** The opportunity features help WR/TE and slightly hurt RB. One feature list for all four positions is leaving something on the table.
+- **`LambdaRank`, but not yet.** It optimizes the ordering the model is actually graded on, which is a correctness argument on its own. Deprioritized because the capacity-concentration probe above suggests reweighting toward the top of the list hurts here. Worth revisiting once the features carry more tier signal.
 - **Decide whether to keep `practice_status_code`.** It is a genuine signal that does not help the metric (see "A live feature that doesn't pay" below). Keeping it costs nothing and gives a better injury feature somewhere to grow from; dropping it takes the model to 21 features and loses nothing measurable.
 - **Report averaged over seeds.** Single-seed numbers move by ~0.01 at QB, which is the same size as the effects being argued about. Averaging 5-10 seeds before recording a result would stop seed noise being read as signal.
 - **Work out why QB is flat.** No significant lift in either held-out season. QBs have no snap-share signal; the model may need quarterback-specific features (pressure rate, opponent pass defense, designed-run share) rather than the shared feature set.
