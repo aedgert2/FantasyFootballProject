@@ -29,6 +29,8 @@ python src/inspect_schema.py                    # sanity-check column names befo
 python src/build_features.py                    # joins tables, builds rolling/opponent/Vegas features
 python src/train_model.py --test-season 2025    # trains LightGBM per position, compares to baseline
 python src/train_model.py --test-season 2025 --significance   # ...and tests whether the lift beats chance
+
+python src/archive_rankings.py                  # snapshot public consensus rankings (runs weekly on its own)
 ```
 
 **2019-2025 is the standard pull.** Training window was chosen by measurement,
@@ -179,6 +181,39 @@ autocorrelation of PPR points is r = 0.487 (r-squared 0.237), so roughly
 three-quarters of weekly fantasy scoring is not predictable from prior
 production at all. That ceiling is the reason, not a modelling defect: dropping
 the weakest feature changes nothing, and a minimal 4-feature model is worse.
+
+## Archiving consensus rankings — the benchmark that decides everything
+
+`nfl.load_ff_rankings()` returns a **current snapshot only**. There is no
+history in nflverse, so a week not captured is lost permanently. That makes
+`data/rankings/` the one directory in `data/` that is committed rather than
+gitignored — everything else regenerates, this cannot.
+
+Why it matters: the model does not beat a 5-game rolling average, but the
+question that actually settles whether this project is worth using is whether it
+beats **free public rankings**. That comparison cannot be run retroactively, and
+it needs a season of pre-kickoff snapshots.
+
+A `launchd` agent runs the archiver **every Sunday at 11:00 ET**, before the
+1:00 PM slate:
+
+```bash
+launchctl list | grep ffproject                          # confirm it is loaded
+tail ~/Library/Logs/ffproject-rankings.log               # last run
+launchctl kickstart -k gui/$(id -u)/com.ffproject.archive-rankings   # run now
+launchctl bootout gui/$(id -u)/com.ffproject.archive-rankings        # remove it
+```
+
+The plist lives at `~/Library/LaunchAgents/com.ffproject.archive-rankings.plist`.
+Re-running on the same day overwrites that day's file rather than duplicating,
+so a retry after a failure is safe. Each snapshot carries `captured_at`,
+`nfl_season` and `nfl_week`; the week is derived from the schedule rather than
+the calendar, and a snapshot with an underivable week is still stored, because a
+missing week is recoverable from the schedule later but a missing snapshot is not.
+
+If the Mac is asleep at the scheduled time, `launchd` runs the job on next wake.
+Missing an occasional week is survivable; the archive only needs enough weeks to
+compare rankings against outcomes.
 
 ## Routes run and TPRR: derived, validated, and it changed nothing
 

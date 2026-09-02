@@ -21,6 +21,7 @@ python src/build_features.py                            # writes data/processed/
 python src/train_model.py --test-season 2025            # writes data/processed/predictions_<season>.parquet
 python src/train_model.py --test-season 2025 --significance   # adds paired tests on the lift
 
+python src/archive_rankings.py                          # snapshot public consensus rankings
 pytest                                                  # unit tests (no network, no data required)
 ```
 
@@ -154,6 +155,20 @@ against a baseline of +0.100 / +0.157 / +0.486.
 
 Headroom: actual (unknowable) target counts order the top-12 at +0.572, so the
 tier is not noise-dominated — usage forecasting is the binding constraint.
+
+## The rankings archive
+
+`data/rankings/` is **committed, unlike the rest of `data/`**. `load_ff_rankings()`
+is a current snapshot only — no history exists in nflverse — so an uncaptured
+week is gone permanently. A `launchd` agent
+(`~/Library/LaunchAgents/com.ffproject.archive-rankings.plist`) runs
+`src/archive_rankings.py` every Sunday at 11:00 ET, before the 1pm slate.
+
+This exists to answer the question the current baseline cannot: the model does
+not beat a 5-game rolling average, but does it beat free public rankings? That
+comparison needs a season of pre-kickoff snapshots and cannot be run
+retroactively. Do not delete these files, and do not add `data/rankings/` to
+`.gitignore`.
 
 ## Two measured dead ends
 
