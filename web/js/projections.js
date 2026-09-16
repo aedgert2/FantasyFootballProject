@@ -10,9 +10,7 @@ const RANGES = { QB: [14, 27], RB: [4, 22], WR: [3, 20], TE: [2, 14], K: [5, 11]
 
 function mockProjection(player) {
   const [lo, hi] = RANGES[player.pos];
-  let hash = 0;
-  for (let i = 0; i < player.name.length; i++) hash = (hash * 31 + player.name.charCodeAt(i)) >>> 0;
-  const frac = (hash % 1000) / 1000;
+  const frac = (player.id * 37) % 100 / 100;
   return +(lo + frac * (hi - lo)).toFixed(1);
 }
 
